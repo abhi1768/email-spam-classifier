@@ -1,6 +1,6 @@
-flask
-flask-cors
-gunicorn
-pandas
-scikit-learn
-joblib
+venv/
+__pycache__/
+*.pyc
+.env
+credentials.json
+token.json

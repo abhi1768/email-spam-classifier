@@ -2,6 +2,7 @@ import os
 import joblib
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
+from gmail_scanner import scan_unread_emails, classify_text
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)  # Flask auto-detects the templates/ and static/ folders
@@ -41,22 +42,30 @@ def predict():
     if not email:
         return jsonify({"error": "Please enter some email text."}), 400
 
-    features = vectorizer.transform([email])
-    spam_prob = float(model.predict_proba(features)[0][1])
-
-    SPAM_THRESHOLD = 0.75
-    is_spam = spam_prob >= SPAM_THRESHOLD
-
-    if is_spam:
-        confidence = spam_prob
-    else:
-        # Scale legitimate confidence from 50% (at threshold) to 100% (at 0% spam risk)
-        confidence = 0.5 + 0.5 * ((SPAM_THRESHOLD - spam_prob) / SPAM_THRESHOLD)
+    # Uses the exact same 3-tier thresholds (Spam / Suspicious / Legitimate) as gmail_scanner.py
+    label, confidence = classify_text(email, model, vectorizer)
 
     return jsonify({
-        "label": "Spam" if is_spam else "Legitimate",
-        "confidence": round(confidence * 100, 2),
+        "label": label,
+        "confidence": confidence,
     })
+
+
+@app.route("/scan-gmail", methods=["GET"])
+def scan_gmail():
+    try:
+        max_results = request.args.get("max_results", default=5, type=int)
+        max_results = max(1, min(max_results, 20))
+        results = scan_unread_emails(model=model, vectorizer=vectorizer, max_results=max_results)
+        return jsonify({
+            "count": len(results),
+            "results": results,
+        })
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Gmail scan failed: {str(e)}"}), 500
+
 
 if __name__ == "__main__":
     # Explicit host and port match the extension's API URL (http://127.0.0.1:5000/predict)
